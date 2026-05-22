@@ -1,4 +1,4 @@
-# IFS Japan Visit Scheduler — セットアップガイド
+# IFS Japan Visit Scheduler — セットアップガイドV1
 
 ## 構成
 - **フロントエンド**: React + Vite
