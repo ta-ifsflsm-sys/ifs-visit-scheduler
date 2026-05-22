@@ -649,28 +649,34 @@ function MeetingForm({ meeting, visitors, owners, lang, tl, initialDay, initialS
         {owners.map(o=><option key={o.id} value={o.id}>{o.id} – {lang==='en'?(o.name_en||o.name):o.name}</option>)}
       </select></div>
     <div className="fld"><label>{tl.fexec}</label>
-      <div style={{border:'0.5px solid var(--border-2)',borderRadius:6,maxHeight:160,overflowY:'auto',padding:'4px 0'}}>
-        {/* 全来訪者 */}
-        <label style={{display:'flex',alignItems:'center',gap:7,padding:'3px 8px',cursor:'pointer',fontSize:11,borderBottom:'0.5px solid var(--border)'}}>
-          <input type="checkbox" checked={form.visitor_scope==='all'}
-            onChange={()=>set('visitor_scope',form.visitor_scope==='all'?'':set('visitor_ids',[])&&'all')}
-            onClick={e=>{e.stopPropagation();const next=form.visitor_scope==='all'?'':'all';setForm(f=>({...f,visitor_scope:next,visitor_ids:next==='all'?[]:f.visitor_ids}))}} />
+      <div style={{border:'0.5px solid var(--border-2)',borderRadius:6,maxHeight:170,overflowY:'auto'}}>
+        <label style={{display:'grid',gridTemplateColumns:'16px 1fr',alignItems:'center',gap:8,
+          padding:'5px 8px',cursor:'pointer',borderBottom:'0.5px solid var(--border)',fontSize:11}}>
+          <input type="checkbox" style={{width:14,height:14,flexShrink:0}}
+            checked={form.visitor_scope==='all'}
+            onChange={()=>setForm(f=>({...f,visitor_scope:f.visitor_scope==='all'?'':'all',visitor_ids:f.visitor_scope==='all'?f.visitor_ids:[]}))} />
           <span style={{fontWeight:500}}>{tl.allExec}</span>
         </label>
         {visitors.map(v=>{
           const checked=(form.visitor_ids||[]).includes(v.id)
           const c=vcol(v.color_idx)
           return (
-            <label key={v.id} style={{display:'flex',alignItems:'center',gap:7,padding:'3px 8px',cursor:'pointer',fontSize:11,
-              background:checked?c.bg:'transparent'}}>
-              <input type="checkbox" checked={checked} disabled={form.visitor_scope==='all'}
+            <label key={v.id} style={{display:'grid',gridTemplateColumns:'16px 18px 1fr auto',
+              alignItems:'center',gap:6,padding:'4px 8px',cursor:'pointer',fontSize:11,
+              background:checked?c.bg:'transparent',
+              opacity:form.visitor_scope==='all'?0.45:1}}>
+              <input type="checkbox" style={{width:14,height:14}}
+                checked={checked} disabled={form.visitor_scope==='all'}
                 onChange={()=>{
                   const ids=form.visitor_ids||[]
                   setForm(f=>({...f,visitor_scope:'',visitor_ids:checked?ids.filter(x=>x!==v.id):[...ids,v.id]}))
                 }} />
-              <span className="vdot" style={{background:c.bg,color:c.col,borderColor:c.bd,flexShrink:0}}>{v.name.charAt(0)}</span>
-              <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:checked?c.col:'inherit'}}>{vName(v)}</span>
-              <span style={{fontSize:9,opacity:.6,whiteSpace:'nowrap'}}>{v.role}</span>
+              <span className="vdot" style={{background:c.bg,color:c.col,borderColor:c.bd,
+                width:18,height:18,fontSize:9}}>{v.name.charAt(0)}</span>
+              <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',
+                fontSize:11,color:checked?c.col:'inherit'}}>{vName(v)}</span>
+              <span style={{fontSize:9,color:'var(--text-3)',whiteSpace:'nowrap',
+                overflow:'hidden',textOverflow:'ellipsis',maxWidth:70}}>{v.role}</span>
             </label>
           )
         })}
