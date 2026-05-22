@@ -230,7 +230,8 @@ export default function App() {
     return meetings.filter(m => {
       const owOk  = foOw  === 'all' || m.owner === foOw
       const stOk  = foSt  === 'all' || m.status === foSt
-      const vidOk = foVid === 'all' || m.visitor_id === foVid || m.visitor_scope === 'all'
+      const ids = m.visitor_ids?.length ? m.visitor_ids : (m.visitor_id ? [m.visitor_id] : [])
+      const vidOk = foVid === 'all' || m.visitor_scope === 'all' || ids.includes(foVid)
       return owOk && stOk && vidOk
     })
   }
@@ -247,8 +248,12 @@ export default function App() {
 
   function execDisplay(m) {
     if (m.visitor_scope==='all') return lang==='ja' ? '全来訪者' : 'All Visitors'
-    if (m.visitor_id) { const v=vById(m.visitor_id); if (v) return `${vName(v)} (${v.role})` }
-    return ''
+    const ids = m.visitor_ids?.length ? m.visitor_ids : (m.visitor_id ? [m.visitor_id] : [])
+    if (!ids.length) return ''
+    const vs = ids.map(id=>vById(id)).filter(Boolean)
+    if (!vs.length) return ''
+    if (vs.length===1) return `${vName(vs[0])} (${vs[0].role})`
+    return vs.map(v=>vName(v).split(' ')[0]).join(', ')
   }
 
   return (
@@ -510,8 +515,8 @@ function MeetingBlock({ meeting:m, lang, tl, stLabel, execDisplay, vById, oColor
   const hpx = Math.max(h2y(m.end_time)-top, 18)
   const ttl = lang==='en'&&m.title_en ? m.title_en : m.title
   const ex  = execDisplay(m)
-  const v   = m.visitor_id ? vById(m.visitor_id) : null
-  const vc  = v ? vcol(v.color_idx) : null
+  const ids = m.visitor_ids?.length ? m.visitor_ids : (m.visitor_id ? [m.visitor_id] : [])
+  const vs  = ids.map(id=>vById(id)).filter(Boolean)
   return (
     <div onClick={e=>{e.stopPropagation();onClick()}}
       style={{position:'absolute',left:3,right:3,top,height:hpx,zIndex:2,
@@ -525,7 +530,7 @@ function MeetingBlock({ meeting:m, lang, tl, stLabel, execDisplay, vById, oColor
         <div style={{display:'flex',gap:3,marginTop:2,alignItems:'center'}}>
           <span style={{fontSize:8,padding:'1px 5px',borderRadius:6,fontWeight:500,background:'rgba(0,0,0,.1)',color:c.tx}}>{stLabel(m.status)}</span>
           <span className="dot" style={{background:ow.bg,color:ow.col,width:13,height:13,fontSize:7}}>{m.owner}</span>
-          {vc && <span className="vdot" style={{background:vc.bg,color:vc.col,borderColor:vc.bd,width:13,height:13,fontSize:8}}>{v.name.charAt(0)}</span>}
+          {vs.slice(0,2).map(v=>{const vc=vcol(v.color_idx);return <span key={v.id} className="vdot" style={{background:vc.bg,color:vc.col,borderColor:vc.bd,width:13,height:13,fontSize:8}}>{v.name.charAt(0)}</span>})}
         </div>
       )}
     </div>
@@ -537,8 +542,6 @@ function DetailPanel({ meeting:m, lang, tl, stLabel, execDisplay, vById, vName, 
   if (!m) return null
   const c  = STC[m.status]
   const ow = oColor(m.owner)
-  const v  = m.visitor_id ? vById(m.visitor_id) : null
-  const vc = v ? vcol(v.color_idx) : null
   const ttl = lang==='en'&&m.title_en ? m.title_en : m.title
   const d   = weekDates[m.day_index]
   const ds  = d ? `${d.getMonth()+1}/${d.getDate()} ` : ''
@@ -549,9 +552,18 @@ function DetailPanel({ meeting:m, lang, tl, stLabel, execDisplay, vById, vName, 
         background:c.bg,color:c.tx,border:`0.5px solid ${c.bd}`}}>{stLabel(m.status)}</span>
       <span className="dot" style={{background:ow.bg,color:ow.col}}>{m.owner}</span>
       <span style={{fontSize:10,color:'var(--text-2)'}}>{oName(m.owner)}</span>
-      {vc && <><span className="vdot" style={{background:vc.bg,color:vc.col,borderColor:vc.bd}}>{v.name.charAt(0)}</span>
-        <span style={{fontSize:10,color:'var(--text-2)'}}>{vName(v)} ({v.role})</span></>}
-      {m.visitor_scope==='all' && <span style={{fontSize:10,color:'var(--text-2)'}}>{tl.allExec}</span>}
+      {m.visitor_scope==='all'
+        ? <span style={{fontSize:10,color:'var(--text-2)'}}>{tl.allExec}</span>
+        : (() => {
+            const ids2 = m.visitor_ids?.length ? m.visitor_ids : (m.visitor_id ? [m.visitor_id] : [])
+            return ids2.map(id=>{const v2=vById(id);if(!v2)return null;const vc2=vcol(v2.color_idx);return(
+              <span key={id} style={{display:'inline-flex',alignItems:'center',gap:3}}>
+                <span className="vdot" style={{background:vc2.bg,color:vc2.col,borderColor:vc2.bd}}>{v2.name.charAt(0)}</span>
+                <span style={{fontSize:10,color:'var(--text-2)'}}>{vName(v2)}</span>
+              </span>
+            )})
+          })()
+      }
     </div>
     <FieldRow label={tl.time} value={`${ds}${ft(m.start_time)} – ${ft(m.end_time)}`} />
     {(m.attendees||[]).length>0 && (
@@ -592,7 +604,7 @@ function MeetingForm({ meeting, visitors, owners, lang, tl, initialDay, initialS
     end_time:      meeting?.end_time??Math.min(EH,(meeting?.start_time??initialStart)+1),
     status:        meeting?.status||'tentative',
     owner:         meeting?.owner||defaultOwner,
-    visitor_id:    meeting?.visitor_id||'',
+    visitor_ids:   meeting?.visitor_ids?.length ? meeting.visitor_ids : (meeting?.visitor_id ? [meeting.visitor_id] : []),
     visitor_scope: meeting?.visitor_scope||'',
     attendees:     (meeting?.attendees||[]).join(', '),
     notes:         meeting?.notes||'',
@@ -602,13 +614,13 @@ function MeetingForm({ meeting, visitors, owners, lang, tl, initialDay, initialS
   const parseTime = s => { const [h,m]=s.split(':').map(Number); return h+m/60 }
 
   async function handleSave() {
-    const vid = (form.visitor_id==='all'||form.visitor_id==='') ? null : form.visitor_id
-    const vsc = form.visitor_id==='all' ? 'all' : null
     await onSave({
       title:form.title||(lang==='ja'?'(無題)':'(Untitled)'), title_en:form.title_en,
       day_index:Number(form.day_index), start_time:form.start_time, end_time:form.end_time,
       status:form.status, owner:form.owner,
-      visitor_id:vid||null, visitor_scope:vsc,
+      visitor_ids: form.visitor_scope==='all' ? [] : form.visitor_ids,
+      visitor_scope: form.visitor_scope==='all' ? 'all' : null,
+      visitor_id: null,
       attendees:form.attendees.split(',').map(s=>s.trim()).filter(Boolean),
       notes:form.notes, briefing:form.briefing,
     })
@@ -637,11 +649,32 @@ function MeetingForm({ meeting, visitors, owners, lang, tl, initialDay, initialS
         {owners.map(o=><option key={o.id} value={o.id}>{o.id} – {lang==='en'?(o.name_en||o.name):o.name}</option>)}
       </select></div>
     <div className="fld"><label>{tl.fexec}</label>
-      <select value={form.visitor_id} onChange={e=>set('visitor_id',e.target.value)}>
-        <option value="">{tl.noExec}</option>
-        {visitors.map(v=><option key={v.id} value={v.id}>{vName(v)} ({v.role})</option>)}
-        <option value="all">{tl.allExec}</option>
-      </select></div>
+      <div style={{border:'0.5px solid var(--border-2)',borderRadius:6,maxHeight:160,overflowY:'auto',padding:'4px 0'}}>
+        {/* 全来訪者 */}
+        <label style={{display:'flex',alignItems:'center',gap:7,padding:'3px 8px',cursor:'pointer',fontSize:11,borderBottom:'0.5px solid var(--border)'}}>
+          <input type="checkbox" checked={form.visitor_scope==='all'}
+            onChange={()=>set('visitor_scope',form.visitor_scope==='all'?'':set('visitor_ids',[])&&'all')}
+            onClick={e=>{e.stopPropagation();const next=form.visitor_scope==='all'?'':'all';setForm(f=>({...f,visitor_scope:next,visitor_ids:next==='all'?[]:f.visitor_ids}))}} />
+          <span style={{fontWeight:500}}>{tl.allExec}</span>
+        </label>
+        {visitors.map(v=>{
+          const checked=(form.visitor_ids||[]).includes(v.id)
+          const c=vcol(v.color_idx)
+          return (
+            <label key={v.id} style={{display:'flex',alignItems:'center',gap:7,padding:'3px 8px',cursor:'pointer',fontSize:11,
+              background:checked?c.bg:'transparent'}}>
+              <input type="checkbox" checked={checked} disabled={form.visitor_scope==='all'}
+                onChange={()=>{
+                  const ids=form.visitor_ids||[]
+                  setForm(f=>({...f,visitor_scope:'',visitor_ids:checked?ids.filter(x=>x!==v.id):[...ids,v.id]}))
+                }} />
+              <span className="vdot" style={{background:c.bg,color:c.col,borderColor:c.bd,flexShrink:0}}>{v.name.charAt(0)}</span>
+              <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:checked?c.col:'inherit'}}>{vName(v)}</span>
+              <span style={{fontSize:9,opacity:.6,whiteSpace:'nowrap'}}>{v.role}</span>
+            </label>
+          )
+        })}
+      </div></div>
     <div className="fld"><label>{tl.fatts}</label><input value={form.attendees} onChange={e=>set('attendees',e.target.value)} placeholder="IFS.TY, Client.Tanaka" /></div>
     <div className="fld"><label>{tl.fnotes}</label><textarea value={form.notes} onChange={e=>set('notes',e.target.value)} style={{height:44}} /></div>
     <div className="fld"><label>{tl.fbrf}</label><textarea value={form.briefing} onChange={e=>set('briefing',e.target.value)} style={{height:60}} /></div>
