@@ -1,0 +1,106 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --purple:    #3B1A6E;
+  --purple-lt: #EEEDFE;
+  --purple-dk: #3C3489;
+
+  --bg:        #ffffff;
+  --bg-2:      #f8f7f6;
+  --bg-3:      #f1efe8;
+  --text:      #1a1a1a;
+  --text-2:    #6b6b6b;
+  --text-3:    #a0a0a0;
+  --border:    rgba(0,0,0,0.12);
+  --border-2:  rgba(0,0,0,0.2);
+  --radius:    6px;
+  --radius-lg: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:     #1a1a1a;
+    --bg-2:   #242424;
+    --bg-3:   #2c2c2c;
+    --text:   #e8e8e8;
+    --text-2: #9a9a9a;
+    --text-3: #666666;
+    --border: rgba(255,255,255,0.1);
+    --border-2: rgba(255,255,255,0.18);
+  }
+}
+
+body {
+  font-family: -apple-system, 'Segoe UI', 'Helvetica Neue', Arial,
+               'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
+  font-size: 14px;
+  background: var(--bg-3);
+  color: var(--text);
+  overflow: hidden;
+  height: 100vh;
+}
+
+#root { height: 100vh; display: flex; flex-direction: column; }
+
+/* ── buttons ── */
+.btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+  border-radius: var(--radius); border: 0.5px solid var(--border-2);
+  background: var(--bg); color: var(--text); line-height: 1;
+  transition: background 0.1s;
+}
+.btn:hover  { background: var(--bg-2); }
+.btn-p      { background: var(--purple); color: #fff; border-color: var(--purple); }
+.btn-p:hover { background: #4d2390; }
+.btn-teams  { background: #5b5fc7; color: #fff; border-color: #5b5fc7; }
+.btn-teams:hover { background: #4a4db5; }
+.btn-danger { color: #a32d2d; border-color: #f09595; }
+.btn-danger:hover { background: #fcebeb; }
+.btn-icon   { padding: 3px 6px; }
+
+/* ── chips ── */
+.chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 10px; padding: 3px 8px; border-radius: 20px; cursor: pointer;
+  border: 0.5px solid var(--border); background: var(--bg-2); color: var(--text-2);
+  line-height: 1; transition: all 0.12s; white-space: nowrap;
+}
+.chip.active { border-color: var(--purple); background: var(--purple-lt); color: var(--purple-dk); }
+
+/* ── dot/avatar ── */
+.dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  font-size: 8px; font-weight: 500;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.vdot {
+  width: 16px; height: 16px; border-radius: 50%;
+  font-size: 9px; font-weight: 500; border: 1.5px solid;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+
+/* ── lang switch ── */
+.lang-sw { display: flex; border: 0.5px solid var(--border-2); border-radius: var(--radius); overflow: hidden; }
+.lang-sw button {
+  font-size: 11px; padding: 4px 9px; border: none; cursor: pointer;
+  background: transparent; color: var(--text-2); line-height: 1;
+}
+.lang-sw button.active { background: var(--purple); color: #fff; }
+
+/* ── form fields ── */
+.fld { display: flex; flex-direction: column; gap: 3px; }
+.fld label { font-size: 10px; color: var(--text-2); }
+.fld input, .fld select, .fld textarea {
+  font-size: 11px; padding: 5px 7px; width: 100%;
+  border-radius: var(--radius); border: 0.5px solid var(--border-2);
+  background: var(--bg); color: var(--text);
+}
+.fld textarea { resize: none; }
+.f2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+/* ── loading ── */
+.loading {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--bg); z-index: 100; font-size: 13px; color: var(--text-2);
+}
