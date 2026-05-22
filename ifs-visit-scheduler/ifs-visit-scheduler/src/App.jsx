@@ -144,6 +144,8 @@ export default function App() {
   const [foOw,  setFoOw]   = useState('all')
   const [foSt,  setFoSt]   = useState('all')
   const [foVid, setFoVid]  = useState('all')
+  const [owBarOpen,  setOwBarOpen]  = useState(true)
+  const [visBarOpen, setVisBarOpen] = useState(true)
   const [panel, setPanel]  = useState(null)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -276,18 +278,32 @@ export default function App() {
             style={{fontSize:11,padding:'4px 7px',borderRadius:6,border:'0.5px solid var(--border-2)',background:'var(--bg)',color:'var(--text)'}} />
         </div>
         <div style={S.bg}>
+          {/* collapsible owner chips */}
+          <button onClick={()=>setOwBarOpen(v=>!v)}
+            style={{fontSize:10,padding:'2px 5px',border:'none',background:'transparent',cursor:'pointer',color:'var(--text-2)'}}>
+            {owBarOpen ? '▼' : '▶'}
+          </button>
           <span style={S.bl}>{tl.ow}</span>
-          <span className={`chip${foOw==='all'?' active':''}`} onClick={() => setFoOw('all')}>{tl.all}</span>
-          {owners.map(o => {
-            const c = vcol(o.color_idx); const isOn = foOw===o.id
-            return (
-              <span key={o.id} className="chip" onClick={() => setFoOw(o.id)}
-                style={isOn ? {background:c.bg,color:c.col,borderColor:c.bd} : {}}>
-                <span className="dot" style={{background:c.bg,color:c.col}}>{o.id}</span>
-                {lang==='en' ? (o.name_en||o.name) : o.name}
-              </span>
-            )
-          })}
+          {owBarOpen ? <>
+            <span className={`chip${foOw==='all'?' active':''}`} onClick={() => setFoOw('all')}>{tl.all}</span>
+            {owners.map(o => {
+              const c = vcol(o.color_idx); const isOn = foOw===o.id
+              return (
+                <span key={o.id} className="chip" onClick={() => setFoOw(o.id)}
+                  style={isOn ? {background:c.bg,color:c.col,borderColor:c.bd} : {}}>
+                  <span className="dot" style={{background:c.bg,color:c.col}}>{o.id}</span>
+                  {lang==='en' ? (o.name_en||o.name) : o.name}
+                </span>
+              )
+            })}
+          </> : foOw!=='all' && (() => {
+            const o=owners.find(x=>x.id===foOw); const c=o?vcol(o.color_idx):null
+            return o ? <span className="chip" style={{background:c.bg,color:c.col,borderColor:c.bd}}
+              onClick={()=>setOwBarOpen(true)}>
+              <span className="dot" style={{background:c.bg,color:c.col}}>{o.id}</span>
+              {lang==='en'?(o.name_en||o.name):o.name} ×
+            </span> : null
+          })()}
           <button className="btn" onClick={() => setPanel({type:'owners'})}
             style={{fontSize:10,padding:'3px 9px'}}>⚙ {tl.owSetup}</button>
         </div>
@@ -299,20 +315,36 @@ export default function App() {
         </div>
       </div>
 
-      {/* visitor bar */}
+      {/* visitor bar — collapsible */}
       <div style={{...S.bar,background:'var(--bg-2)'}}>
+        <button onClick={()=>setVisBarOpen(v=>!v)}
+          style={{fontSize:10,padding:'2px 5px',border:'none',background:'transparent',cursor:'pointer',color:'var(--text-2)'}}>
+          {visBarOpen ? '▼' : '▶'}
+        </button>
         <span style={S.bl}>{tl.vis}</span>
-        <span className={`chip${foVid==='all'?' active':''}`} onClick={() => setFoVid('all')}>{tl.allvis}</span>
-        {visitors.map(v => {
-          const c=vcol(v.color_idx); const isOn=foVid===v.id
-          return (
-            <span key={v.id} className="chip" onClick={() => setFoVid(v.id)}
-              style={isOn ? {background:c.bg,color:c.col,borderColor:c.bd} : {}}>
-              <span className="vdot" style={{background:c.bg,color:c.col,borderColor:c.bd}}>{v.name.charAt(0)}</span>
-              {vName(v)}<span style={{fontSize:9,opacity:.6}}>{v.role}</span>
-            </span>
-          )
-        })}
+        {visBarOpen ? <>
+          <span className={`chip${foVid==='all'?' active':''}`} onClick={() => setFoVid('all')}>{tl.allvis}</span>
+          {visitors.map(v => {
+            const c=vcol(v.color_idx); const isOn=foVid===v.id
+            return (
+              <span key={v.id} className="chip" onClick={() => setFoVid(v.id)}
+                style={isOn ? {background:c.bg,color:c.col,borderColor:c.bd} : {}}>
+                <span className="vdot" style={{background:c.bg,color:c.col,borderColor:c.bd}}>{v.name.charAt(0)}</span>
+                {vName(v)}<span style={{fontSize:9,opacity:.6}}>{v.role}</span>
+              </span>
+            )
+          })}
+        </> : foVid!=='all' && (() => {
+          const v=visitors.find(x=>x.id===foVid); const c=v?vcol(v.color_idx):null
+          return v ? <span className="chip" style={{background:c.bg,color:c.col,borderColor:c.bd}}
+            onClick={()=>setVisBarOpen(true)}>
+            <span className="vdot" style={{background:c.bg,color:c.col,borderColor:c.bd}}>{v.name.charAt(0)}</span>
+            {vName(v)} ×
+          </span> : null
+        })()}
+        {!visBarOpen && <span style={{fontSize:10,color:'var(--text-3)',marginLeft:4}}>
+          ({visitors.length}{lang==='ja'?'名':' visitors'})
+        </span>}
         <button className="btn" onClick={() => setPanel({type:'visitors'})}
           style={{marginLeft:'auto',fontSize:10,padding:'3px 9px'}}>⚙ {tl.visSetup}</button>
       </div>
