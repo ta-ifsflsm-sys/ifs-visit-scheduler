@@ -339,52 +339,57 @@ export default function App() {
 
       {/* main */}
       <div style={{ flex:1, display:'flex', minHeight:0 }}>
-        <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, background:'var(--bg)', overflow:'hidden' }}>
+        {/* ── CSS Grid: header + body in one container → perfect column alignment ── */}
+        <div id="cal-scroll" style={{
+          flex:1, minWidth:0, overflowY:'auto',
+          display:'grid',
+          gridTemplateColumns:'48px repeat(5, 1fr)',
+          alignContent:'start',
+          background:'var(--bg)',
+        }}>
+          {/* ── sticky header row ── */}
+          {/* corner cell */}
+          <div style={{ position:'sticky', top:0, zIndex:20, height:44,
+            background:'var(--bg)', borderBottom:'0.5px solid var(--border)' }} />
+          {/* day header cells */}
+          {weekDates.map((d, i) => {
+            const isToday = d.toDateString() === today.toDateString()
+            return (
+              <div key={i} style={{ position:'sticky', top:0, zIndex:20, height:44,
+                background:'var(--bg)',
+                borderLeft:'0.5px solid var(--border)',
+                borderBottom:'0.5px solid var(--border)',
+                display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
+                <div style={{ fontSize:10, color:'var(--text-2)' }}>{tl.days[i]}</div>
+                {isToday
+                  ? <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center',
+                      width:22, height:22, borderRadius:'50%', background:'#3B1A6E', color:'#fff',
+                      fontSize:12, fontWeight:500 }}>{d.getDate()}</span>
+                  : <span style={{ fontSize:14, fontWeight:500 }}>{d.getDate()}</span>
+                }
+              </div>
+            )
+          })}
 
-          {/* day headers — fixed height 44px */}
-          <div style={{ display:'flex', borderBottom:'0.5px solid var(--border)', flexShrink:0, height:44 }}>
-            <div style={{ width:48, flexShrink:0, borderRight:'0.5px solid var(--border)' }} />
-            {weekDates.map((d, i) => {
-              const isToday = d.toDateString() === today.toDateString()
-              return (
-                <div key={i} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center',
-                  justifyContent:'center', borderRight: i<4 ? '0.5px solid var(--border)' : 'none' }}>
-                  <div style={{ fontSize:10, color:'var(--text-2)' }}>{tl.days[i]}</div>
-                  {isToday
-                    ? <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center',
-                        width:22, height:22, borderRadius:'50%', background:'#3B1A6E', color:'#fff', fontSize:12, fontWeight:500 }}>{d.getDate()}</span>
-                    : <span style={{ fontSize:14, fontWeight:500 }}>{d.getDate()}</span>
-                  }
-                </div>
-              )
-            })}
+          {/* ── body row: time column ── */}
+          <div style={{ position:'relative', height:TH }}>
+            {Array.from({ length: EH - SH + 1 }, (_, i) => (
+              <div key={i} style={{ position:'absolute', right:5, top: i * HPX - 8,
+                fontSize:9, color:'var(--text-3)', lineHeight:1,
+                visibility: i === 0 ? 'hidden' : 'visible' }}>
+                {SH + i}:00
+              </div>
+            ))}
           </div>
-
-          {/* scrollable calendar body */}
-          <div id="cal-scroll" style={{ flex:1, overflowY:'auto', display:'flex' }}>
-            {/* time column */}
-            <div style={{ width:48, flexShrink:0, position:'relative', height:TH, borderRight:'0.5px solid var(--border)' }}>
-              {Array.from({ length: EH - SH + 1 }, (_, i) => (
-                <div key={i} style={{ position:'absolute', right:5,
-                  top: i * HPX - 8, fontSize:9, color:'var(--text-3)', lineHeight:1,
-                  // clip first label to avoid overflow above container
-                  visibility: i === 0 ? 'hidden' : 'visible' }}>
-                  {SH + i}:00
-                </div>
-              ))}
-            </div>
-            {/* day columns */}
-            <div style={{ flex:1, display:'flex', height:TH }}>
-              {[0,1,2,3,4].map(i => (
-                <DayColumn key={i} dayIdx={i}
-                  meetings={visibleMeetings().filter(m => m.day_index === i)}
-                  visitors={visitors} lang={lang} tl={tl}
-                  stLabel={stLabel} execDisplay={execDisplay} vById={vById}
-                  onClickMeeting={id => setPanel({ type:'detail', id })}
-                  onClickEmpty={(di, sh) => setPanel({ type:'add', dayIdx:di, startH:sh })} />
-              ))}
-            </div>
-          </div>
+          {/* ── body row: day columns ── */}
+          {[0,1,2,3,4].map(i => (
+            <DayColumn key={i} dayIdx={i}
+              meetings={visibleMeetings().filter(m => m.day_index === i)}
+              visitors={visitors} lang={lang} tl={tl}
+              stLabel={stLabel} execDisplay={execDisplay} vById={vById}
+              onClickMeeting={id => setPanel({ type:'detail', id })}
+              onClickEmpty={(di, sh) => setPanel({ type:'add', dayIdx:di, startH:sh })} />
+          ))}
         </div>
 
         {/* right panel */}
@@ -480,8 +485,8 @@ function DayColumn({ dayIdx, meetings, visitors, lang, tl, stLabel, execDisplay,
     onClickEmpty(dayIdx, h)
   }
   return (
-    <div onClick={handleClick} style={{ flex:1, position:'relative', height:TH,
-      borderRight: dayIdx < 4 ? '0.5px solid var(--border)' : 'none', cursor:'crosshair' }}>
+    <div onClick={handleClick} style={{ position:'relative', height:TH,
+      borderLeft:'0.5px solid var(--border)', cursor:'crosshair' }}>
       <GridLines />
       {meetings.map(m => (
         <MeetingBlock key={m.id} meeting={m} lang={lang} tl={tl}
