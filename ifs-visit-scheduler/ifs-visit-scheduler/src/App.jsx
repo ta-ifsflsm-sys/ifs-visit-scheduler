@@ -145,7 +145,7 @@ export default function App() {
   const [foSt,  setFoSt]   = useState('all')
   const [foVid, setFoVid]  = useState('all')
   const [owBarOpen,  setOwBarOpen]  = useState(true)
-  const [visBarOpen, setVisBarOpen] = useState(true)
+  const [visBarOpen, setVisBarOpen] = useState(false)
   const [panel, setPanel]  = useState(null)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -252,7 +252,7 @@ export default function App() {
   }
 
   return (
-    <div style={{display:'flex',flexDirection:'column',height:'100vh',overflow:'hidden'}}>
+    <div style={{display:'flex',flexDirection:'column',height:'100vh',overflow:'hidden',width:'100%',maxWidth:'100vw'}}>
 
       {/* topbar */}
       <div style={S.topbar}>
@@ -290,9 +290,10 @@ export default function App() {
               const c = vcol(o.color_idx); const isOn = foOw===o.id
               return (
                 <span key={o.id} className="chip" onClick={() => setFoOw(o.id)}
-                  style={isOn ? {background:c.bg,color:c.col,borderColor:c.bd} : {}}>
-                  <span className="dot" style={{background:c.bg,color:c.col}}>{o.id}</span>
-                  {lang==='en' ? (o.name_en||o.name) : o.name}
+                  title={lang==='en'?(o.name_en||o.name):o.name}
+                  style={{...(isOn?{background:c.bg,color:c.col,borderColor:c.bd}:{}),maxWidth:120,overflow:'hidden'}}>
+                  <span className="dot" style={{background:c.bg,color:c.col,flexShrink:0}}>{o.id}</span>
+                  <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{(lang==='en'?(o.name_en||o.name):o.name).split(' ')[0]}</span>
                 </span>
               )
             })}
@@ -328,9 +329,10 @@ export default function App() {
             const c=vcol(v.color_idx); const isOn=foVid===v.id
             return (
               <span key={v.id} className="chip" onClick={() => setFoVid(v.id)}
-                style={isOn ? {background:c.bg,color:c.col,borderColor:c.bd} : {}}>
-                <span className="vdot" style={{background:c.bg,color:c.col,borderColor:c.bd}}>{v.name.charAt(0)}</span>
-                {vName(v)}<span style={{fontSize:9,opacity:.6}}>{v.role}</span>
+                title={`${vName(v)} (${v.role})`}
+                style={{...(isOn?{background:c.bg,color:c.col,borderColor:c.bd}:{}),maxWidth:130,overflow:'hidden'}}>
+                <span className="vdot" style={{background:c.bg,color:c.col,borderColor:c.bd,flexShrink:0}}>{v.name.charAt(0)}</span>
+                <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{vName(v).split(' ')[0]}</span>
               </span>
             )
           })}
@@ -910,7 +912,7 @@ const S = {
     display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexShrink:0},
   logo:   {background:'#3B1A6E',color:'#fff',fontSize:11,fontWeight:500,padding:'3px 9px',borderRadius:6},
   bar:    {background:'var(--bg)',borderBottom:'0.5px solid var(--border)',padding:'5px 12px',
-    display:'flex',alignItems:'center',gap:7,flexWrap:'wrap',minHeight:34,flexShrink:0},
+    display:'flex',alignItems:'center',gap:7,flexWrap:'wrap',minHeight:34,flexShrink:0,overflow:'hidden',maxWidth:'100%'},
   bg:     {display:'flex',alignItems:'center',gap:5},
   bl:     {fontSize:11,color:'var(--text-2)',whiteSpace:'nowrap'},
   rp:     {width:268,flexShrink:0,borderLeft:'0.5px solid var(--border)',background:'var(--bg)',overflowY:'auto'},
