@@ -416,6 +416,7 @@ export default function App() {
                   oName={oName} oColor={oColor} weekDates={weekDates}
                   onClose={() => setPanel(null)}
                   onEdit={() => setPanel({type:'edit',id:panel.id})}
+                  onDelete={deleteMeeting}
                   onICS={m => downloadICS(m,weekDates,visitors)} />
               )}
               {(panel.type==='add'||panel.type==='edit') && (
@@ -532,7 +533,7 @@ function MeetingBlock({ meeting:m, lang, tl, stLabel, execDisplay, vById, oColor
 }
 
 // ── DetailPanel ───────────────────────────────────────────────────────────────
-function DetailPanel({ meeting:m, lang, tl, stLabel, execDisplay, vById, vName, oName, oColor, weekDates, onClose, onEdit, onICS }) {
+function DetailPanel({ meeting:m, lang, tl, stLabel, execDisplay, vById, vName, oName, oColor, weekDates, onClose, onEdit, onDelete, onICS }) {
   if (!m) return null
   const c  = STC[m.status]
   const ow = oColor(m.owner)
@@ -570,7 +571,10 @@ function DetailPanel({ meeting:m, lang, tl, stLabel, execDisplay, vById, vName, 
     </>}
     <div style={{display:'flex',flexDirection:'column',gap:5,marginTop:'auto',paddingTop:4}}>
       <button className="btn btn-teams" onClick={() => onICS(m)} style={{justifyContent:'center'}}>📅 {tl.ics}</button>
-      <button className="btn" onClick={onEdit} style={{justifyContent:'center',fontSize:10}}>✏️ {lang==='ja'?'編集':'Edit'}</button>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5}}>
+        <button className="btn" onClick={onEdit} style={{justifyContent:'center',fontSize:10}}>✏️ {lang==='ja'?'編集':'Edit'}</button>
+        <button className="btn btn-danger" onClick={() => onDelete(m.id)} style={{justifyContent:'center',fontSize:10}}>🗑 {lang==='ja'?'削除':'Delete'}</button>
+      </div>
     </div>
   </>
 }
