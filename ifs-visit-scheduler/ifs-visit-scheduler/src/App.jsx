@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from './lib/supabase'
 import { downloadICS } from './utils/ics'
+import * as XLSX from 'xlsx'
 
 // ── constants ────────────────────────────────────────────────────────────────
-const SH = 9, EH = 18, HPX = 80, TH = (EH - SH) * HPX
+const SH = 8, EH = 20, HPX = 80, TH = (EH - SH) * HPX
+const SL = HPX / 2  // 40px = 30min slot height
 
 const VCOLS = [
   { bg: '#FAECE7', col: '#993C1D', bd: '#D85A30' },
@@ -51,6 +53,13 @@ const T = {
     loading: '読み込み中...', saving: '保存中...',
     del_confirm: 'このミーティングを削除しますか？',
     vis_del_confirm: 'この来訪者を削除しますか？（関連ミーティングの紐付けは解除されます）',
+    xlsImport: 'Excelからインポート',
+    xlsTemplate: 'テンプレートをダウンロード',
+    xlsPreview: 'インポートプレビュー',
+    xlsConfirm: 'インポート実行',
+    xlsCancel: 'キャンセル',
+    xlsError: 'ファイルの読み込みに失敗しました',
+    xlsFormatHint: '列順: 氏名(JP) | 氏名(EN) | 役職 | カラー番号(0〜5)',
   },
   en: {
     days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
@@ -74,6 +83,13 @@ const T = {
     loading: 'Loading...', saving: 'Saving...',
     del_confirm: 'Delete this meeting?',
     vis_del_confirm: 'Remove this visitor? (linked meetings will be unlinked)',
+    xlsImport: 'Import from Excel',
+    xlsTemplate: 'Download Template',
+    xlsPreview: 'Import Preview',
+    xlsConfirm: 'Confirm Import',
+    xlsCancel: 'Cancel',
+    xlsError: 'Failed to read file',
+    xlsFormatHint: 'Columns: Name(JP) | Name(EN) | Role | Color(0–5)',
   },
 }
 
@@ -94,17 +110,60 @@ function getMondayOf(d = new Date()) {
 
 function getWeekDates(monday) {
   return Array.from({ length: 5 }, (_, i) => {
-    const d = new Date(monday)
-    d.setDate(monday.getDate() + i)
-    return d
+    const d = new Date(monday); d.setDate(monday.getDate() + i); return d
   })
 }
 
 function vcol(ci) { return VCOLS[ci % VCOLS.length] }
 
+// ── Excel helpers ─────────────────────────────────────────────────────────────
+function downloadVisitorTemplate(lang) {
+  const wb = XLSX.utils.book_new()
+  const data = lang === 'ja'
+    ? [
+        ['氏名 (JP)', '氏名 (EN)', '役職', 'カラー番号 (0〜5)'],
+        ['山田 太郎', 'Taro Yamada', 'CEO', '0'],
+        ['Mark Moffat', 'Mark Moffat', 'CCO', '1'],
+        ['Hannes Liebe', 'Hannes Liebe', 'API President', '2'],
+      ]
+    : [
+        ['Name (JP)', 'Name (EN)', 'Role', 'Color (0–5)'],
+        ['Mark Moffat', 'Mark Moffat', 'CCO', '0'],
+        ['Hannes Liebe', 'Hannes Liebe', 'API President', '1'],
+      ]
+  const ws = XLSX.utils.aoa_to_sheet(data)
+  ws['!cols'] = [{ wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 16 }]
+  XLSX.utils.book_append_sheet(wb, ws, lang === 'ja' ? '来訪者' : 'Visitors')
+  XLSX.writeFile(wb, 'visitors_template.xlsx')
+}
+
+function parseVisitorExcel(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' })
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+        const parsed = rows
+          .slice(1)
+          .filter(r => String(r[0] || r[1]).trim())
+          .map((r, i) => ({
+            name:     String(r[0] || r[1] || '').trim(),
+            name_en:  String(r[1] || r[0] || '').trim(),
+            role:     String(r[2] || '').trim(),
+            color_idx: Math.min(5, Math.max(0, parseInt(r[3]) || i % 6)),
+          }))
+        resolve(parsed)
+      } catch(e) { reject(e) }
+    }
+    reader.onerror = reject
+    reader.readAsArrayBuffer(file)
+  })
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
-  // ── state ──
   const [lang,     setLangState]  = useState('ja')
   const [meetings, setMeetings]   = useState([])
   const [visitors, setVisitors]   = useState([])
@@ -116,19 +175,17 @@ export default function App() {
   const [foOw,  setFoOw]   = useState('all')
   const [foSt,  setFoSt]   = useState('all')
   const [foVid, setFoVid]  = useState('all')
-  const [panel, setPanel]  = useState(null)   // { type, id?, dayIdx?, startH? }
+  const [panel, setPanel]  = useState(null)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const tl = T[lang]
 
-  // ── URL sync ──
   useEffect(() => {
     const url = new URL(window.location)
     url.searchParams.set('week', fmtDate(monday))
     window.history.replaceState({}, '', url)
   }, [monday])
 
-  // ── data fetch ──
   const fetchData = useCallback(async () => {
     const ws = fmtDate(monday)
     const [{ data: m }, { data: v }] = await Promise.all([
@@ -142,7 +199,6 @@ export default function App() {
 
   useEffect(() => { setLoading(true); fetchData() }, [fetchData])
 
-  // ── realtime ──
   useEffect(() => {
     const ws = fmtDate(monday)
     const ch = supabase.channel(`scheduler-${ws}`)
@@ -152,35 +208,33 @@ export default function App() {
     return () => supabase.removeChannel(ch)
   }, [monday, fetchData])
 
-  // ── CRUD ──
   async function addMeeting(data) {
     setSaving(true)
     await supabase.from('meetings').insert({ ...data, week_start: fmtDate(monday) })
-    setSaving(false)
-    setPanel(null)
+    setSaving(false); setPanel(null)
   }
-
   async function updateMeeting(id, data) {
     setSaving(true)
     await supabase.from('meetings').update(data).eq('id', id)
-    setSaving(false)
-    setPanel(null)
+    setSaving(false); setPanel(null)
   }
-
   async function deleteMeeting(id) {
     if (!window.confirm(tl.del_confirm)) return
     setSaving(true)
     await supabase.from('meetings').delete().eq('id', id)
-    setSaving(false)
-    setPanel(null)
+    setSaving(false); setPanel(null)
   }
-
   async function addVisitor(data) {
     setSaving(true)
     await supabase.from('visitors').insert({ ...data, week_start: fmtDate(monday) })
     setSaving(false)
   }
-
+  async function bulkAddVisitors(list) {
+    setSaving(true)
+    const ws = fmtDate(monday)
+    await supabase.from('visitors').insert(list.map(v => ({ ...v, week_start: ws })))
+    setSaving(false)
+  }
   async function deleteVisitor(id) {
     if (!window.confirm(tl.vis_del_confirm)) return
     setSaving(true)
@@ -189,20 +243,13 @@ export default function App() {
     setSaving(false)
   }
 
-  // ── week change ──
   function changeWeek(val) {
     const [y, m, d] = val.split('-').map(Number)
     setMonday(new Date(y, m - 1, d))
     setFoVid('all')
   }
+  function setLang(l) { setLangState(l) }
 
-  // ── lang ──
-  function setLang(l) {
-    setLangState(l)
-    if (panel?.type === 'detail') setPanel({ ...panel })
-  }
-
-  // ── filter helpers ──
   function visibleMeetings() {
     return meetings.filter(m => {
       const owOk  = foOw  === 'all' || m.owner === foOw
@@ -212,12 +259,11 @@ export default function App() {
     })
   }
 
-  // ── render helpers ──
   const weekDates = getWeekDates(monday)
-  const today = new Date()
-
-  function vById(id) { return visitors.find(v => v.id === id) }
-  function vName(v)  { return v ? (lang === 'en' ? (v.name_en || v.name) : v.name) : '' }
+  const today     = new Date()
+  const vById     = id => visitors.find(v => v.id === id)
+  const vName     = v  => v ? (lang === 'en' ? (v.name_en || v.name) : v.name) : ''
+  const stLabel   = s  => tl[{ confirmed:'conf', tentative:'tent', travel:'trvl' }[s]]
 
   function execDisplay(m) {
     if (m.visitor_scope === 'all') return lang === 'ja' ? '全来訪者' : 'All Visitors'
@@ -225,26 +271,20 @@ export default function App() {
     return ''
   }
 
-  function stLabel(s) { return tl[{ confirmed:'conf', tentative:'tent', travel:'trvl' }[s]] }
+  function handleICS(m) { downloadICS(m, weekDates, visitors) }
 
-  // ── ICS download ──
-  function handleICS(m) {
-    downloadICS(m, weekDates, visitors)
-  }
-
-  // ── render ─────────────────────────────────────────────────────────────────
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100vh', overflow:'hidden' }}>
 
-      {/* ── topbar ── */}
-      <div style={styles.topbar}>
+      {/* topbar */}
+      <div style={S.topbar}>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <span style={styles.logo}>IFS</span>
-          <span style={styles.appTitle}>Japan Visit Scheduler</span>
+          <span style={S.logo}>IFS</span>
+          <span style={{ fontSize:13, fontWeight:500 }}>Japan Visit Scheduler</span>
           {saving && <span style={{ fontSize:10, color:'#888' }}>{tl.saving}</span>}
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-          <button className="btn btn-p" onClick={() => setPanel({ type:'add', dayIdx:0, startH:10 })}>
+          <button className="btn btn-p" onClick={() => setPanel({ type:'add', dayIdx:0, startH:9 })}>
             + {tl.add}
           </button>
           <div className="lang-sw">
@@ -254,86 +294,86 @@ export default function App() {
         </div>
       </div>
 
-      {/* ── filter bar: owner + status ── */}
-      <div style={styles.bar}>
-        <div style={styles.barGroup}>
-          <span style={styles.barLabel}>{tl.wk}</span>
+      {/* filter bar */}
+      <div style={S.bar}>
+        <div style={S.bg}>
+          <span style={S.bl}>{tl.wk}</span>
           <input type="date" value={fmtDate(monday)} onChange={e => changeWeek(e.target.value)}
             style={{ fontSize:11, padding:'4px 7px', borderRadius:6, border:'0.5px solid var(--border-2)', background:'var(--bg)', color:'var(--text)' }} />
         </div>
-        <div style={styles.barGroup}>
-          <span style={styles.barLabel}>{tl.ow}</span>
+        <div style={S.bg}>
+          <span style={S.bl}>{tl.ow}</span>
           <span className={`chip${foOw==='all'?' active':''}`} onClick={() => setFoOw('all')}>{tl.all}</span>
           {OWNERS.map(k => (
             <span key={k} className={`chip${foOw===k?' active':''}`} onClick={() => setFoOw(k)}>
-              <span className="dot" style={{ background: OWC[k].bg, color: OWC[k].col }}>{k}</span>
+              <span className="dot" style={{ background:OWC[k].bg, color:OWC[k].col }}>{k}</span>
               {tl.ownN[k]}
             </span>
           ))}
         </div>
-        <div style={styles.barGroup}>
-          <span style={styles.barLabel}>{tl.st}</span>
+        <div style={S.bg}>
+          <span style={S.bl}>{tl.st}</span>
           {[['all','allst'],['confirmed','conf'],['tentative','tent'],['travel','trvl']].map(([v,lk]) => (
             <span key={v} className={`chip${foSt===v?' active':''}`} onClick={() => setFoSt(v)}>{tl[lk]}</span>
           ))}
         </div>
       </div>
 
-      {/* ── visitor bar ── */}
-      <div style={{ ...styles.bar, background:'var(--bg-2)' }}>
-        <span style={styles.barLabel}>{tl.vis}</span>
+      {/* visitor bar */}
+      <div style={{ ...S.bar, background:'var(--bg-2)' }}>
+        <span style={S.bl}>{tl.vis}</span>
         <span className={`chip${foVid==='all'?' active':''}`} onClick={() => setFoVid('all')}>{tl.allvis}</span>
         {visitors.map(v => {
-          const c = vcol(v.color_idx)
-          const nm = vName(v)
-          const isOn = foVid === v.id
+          const c = vcol(v.color_idx); const isOn = foVid === v.id
           return (
             <span key={v.id} className="chip" onClick={() => setFoVid(v.id)}
               style={isOn ? { background:c.bg, color:c.col, borderColor:c.bd } : {}}>
               <span className="vdot" style={{ background:c.bg, color:c.col, borderColor:c.bd }}>{v.name.charAt(0)}</span>
-              {nm}
-              <span style={{ fontSize:9, opacity:.6 }}>{v.role}</span>
+              {vName(v)}<span style={{ fontSize:9, opacity:.6 }}>{v.role}</span>
             </span>
           )
         })}
         <button className="btn" onClick={() => setPanel({ type:'visitors' })}
-          style={{ marginLeft:'auto', fontSize:10, padding:'3px 9px' }}>
-          ⚙ {tl.visSetup}
-        </button>
+          style={{ marginLeft:'auto', fontSize:10, padding:'3px 9px' }}>⚙ {tl.visSetup}</button>
       </div>
 
-      {/* ── main ── */}
+      {/* main */}
       <div style={{ flex:1, display:'flex', minHeight:0 }}>
-
-        {/* ── calendar ── */}
         <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, background:'var(--bg)', overflow:'hidden' }}>
 
-          {/* day headers */}
-          <div style={{ display:'flex', borderBottom:'0.5px solid var(--border)', flexShrink:0 }}>
+          {/* day headers — fixed height 44px */}
+          <div style={{ display:'flex', borderBottom:'0.5px solid var(--border)', flexShrink:0, height:44 }}>
             <div style={{ width:48, flexShrink:0, borderRight:'0.5px solid var(--border)' }} />
             {weekDates.map((d, i) => {
               const isToday = d.toDateString() === today.toDateString()
               return (
-                <div key={i} style={{ flex:1, padding:'5px 4px', textAlign:'center',
-                  borderRight: i<4 ? '0.5px solid var(--border)' : 'none',
-                  background:'var(--bg)' }}>
+                <div key={i} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center',
+                  justifyContent:'center', borderRight: i<4 ? '0.5px solid var(--border)' : 'none' }}>
                   <div style={{ fontSize:10, color:'var(--text-2)' }}>{tl.days[i]}</div>
-                  <div>
-                    {isToday
-                      ? <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center',
-                          width:22, height:22, borderRadius:'50%', background:'var(--purple)', color:'#fff',
-                          fontSize:12, fontWeight:500 }}>{d.getDate()}</span>
-                      : <span style={{ fontSize:14, fontWeight:500 }}>{d.getDate()}</span>
-                    }
-                  </div>
+                  {isToday
+                    ? <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center',
+                        width:22, height:22, borderRadius:'50%', background:'#3B1A6E', color:'#fff', fontSize:12, fontWeight:500 }}>{d.getDate()}</span>
+                    : <span style={{ fontSize:14, fontWeight:500 }}>{d.getDate()}</span>
+                  }
                 </div>
               )
             })}
           </div>
 
-          {/* time + grid */}
-          <div style={{ flex:1, overflow:'auto', display:'flex' }}>
-            <TimeColumn />
+          {/* scrollable calendar body */}
+          <div id="cal-scroll" style={{ flex:1, overflowY:'auto', display:'flex' }}>
+            {/* time column */}
+            <div style={{ width:48, flexShrink:0, position:'relative', height:TH, borderRight:'0.5px solid var(--border)' }}>
+              {Array.from({ length: EH - SH + 1 }, (_, i) => (
+                <div key={i} style={{ position:'absolute', right:5,
+                  top: i * HPX - 8, fontSize:9, color:'var(--text-3)', lineHeight:1,
+                  // clip first label to avoid overflow above container
+                  visibility: i === 0 ? 'hidden' : 'visible' }}>
+                  {SH + i}:00
+                </div>
+              ))}
+            </div>
+            {/* day columns */}
             <div style={{ flex:1, display:'flex', height:TH }}>
               {[0,1,2,3,4].map(i => (
                 <DayColumn key={i} dayIdx={i}
@@ -347,10 +387,10 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── right panel ── */}
+        {/* right panel */}
         {panel && (
-          <div style={styles.rp}>
-            <div style={styles.rpi}>
+          <div style={S.rp}>
+            <div style={S.rpi}>
               {panel.type === 'detail' && (
                 <DetailPanel
                   meeting={meetings.find(m => m.id === panel.id)}
@@ -359,40 +399,38 @@ export default function App() {
                   weekDates={weekDates}
                   onClose={() => setPanel(null)}
                   onEdit={() => setPanel({ type:'edit', id:panel.id })}
-                  onICS={handleICS}
-                />
+                  onICS={handleICS} />
               )}
               {(panel.type === 'add' || panel.type === 'edit') && (
                 <MeetingForm
                   meeting={panel.type === 'edit' ? meetings.find(m => m.id === panel.id) : null}
                   visitors={visitors} lang={lang} tl={tl}
                   initialDay={panel.dayIdx ?? 0}
-                  initialStart={panel.startH ?? 10}
+                  initialStart={panel.startH ?? 9}
                   onSave={panel.type === 'edit'
                     ? (data) => updateMeeting(panel.id, data)
                     : addMeeting}
                   onDelete={panel.type === 'edit' ? () => deleteMeeting(panel.id) : null}
                   onClose={() => setPanel(null)}
-                  vName={vName}
-                />
+                  vName={vName} />
               )}
               {panel.type === 'visitors' && (
                 <VisitorPanel
                   visitors={visitors} lang={lang} tl={tl}
                   meetings={meetings}
                   onAdd={addVisitor}
+                  onBulkAdd={bulkAddVisitors}
                   onDelete={deleteVisitor}
                   onClose={() => setPanel(null)}
-                  vName={vName}
-                />
+                  vName={vName} />
               )}
             </div>
           </div>
         )}
       </div>
 
-      {/* ── legend ── */}
-      <div style={styles.legend}>
+      {/* legend */}
+      <div style={S.legend}>
         {[['confirmed','conf','#EAF3DE','#639922'],['tentative','tent','#FAEEDA','#BA7517'],['travel','trvl','#E6F1FB','#185FA5']].map(([s,lk,bg,bd]) => (
           <span key={s} style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, color:'var(--text-2)' }}>
             <span style={{ width:10, height:10, borderRadius:2, background:bg, borderLeft:`3px solid ${bd}` }} />
@@ -407,45 +445,44 @@ export default function App() {
   )
 }
 
-// ── TimeColumn ────────────────────────────────────────────────────────────────
-function TimeColumn() {
+// ── GridLines ─────────────────────────────────────────────────────────────────
+function GridLines() {
+  const hours = EH - SH  // 12
   return (
-    <div style={{ width:48, flexShrink:0, position:'relative', height:TH,
-      borderRight:'0.5px solid var(--border)' }}>
-      {Array.from({ length: EH - SH + 1 }, (_, i) => SH + i).map(h => (
-        <div key={h} style={{ position:'absolute', right:5, top:h2y(h),
-          transform:'translateY(-50%)', fontSize:9, color:'var(--text-3)', whiteSpace:'nowrap', lineHeight:1 }}>
-          {h}:00
-        </div>
+    <>
+      {/* 15min hairlines */}
+      {Array.from({ length: hours * 4 + 1 }, (_, i) => {
+        if (i % 2 === 0) return null  // skip 30min positions (handled below)
+        return <div key={`q${i}`} style={{ position:'absolute', left:0, right:0, top: i * 20,
+          borderTop:'0.5px solid rgba(128,128,128,.06)', pointerEvents:'none' }} />
+      })}
+      {/* 30min lines */}
+      {Array.from({ length: hours * 2 + 1 }, (_, i) => {
+        if (i % 2 === 0) return null  // skip hour positions
+        return <div key={`m${i}`} style={{ position:'absolute', left:0, right:0, top: i * SL,
+          borderTop:'0.5px solid rgba(128,128,128,.14)', pointerEvents:'none' }} />
+      })}
+      {/* hour lines */}
+      {Array.from({ length: hours + 1 }, (_, i) => (
+        <div key={`h${i}`} style={{ position:'absolute', left:0, right:0, top: i * HPX,
+          borderTop: i === 0 ? 'none' : '0.5px solid rgba(128,128,128,.28)', pointerEvents:'none' }} />
       ))}
-    </div>
+    </>
   )
 }
 
 // ── DayColumn ─────────────────────────────────────────────────────────────────
 function DayColumn({ dayIdx, meetings, visitors, lang, tl, stLabel, execDisplay, vById, onClickMeeting, onClickEmpty }) {
-  const calBdRef = useRef(null)
-
   function handleClick(e) {
     if (e.target !== e.currentTarget) return
-    const parent = document.getElementById('cal-scroll')
-    const rect = e.currentTarget.getBoundingClientRect()
-    const scrollTop = parent ? parent.scrollTop : 0
-    const relY = e.clientY - rect.top
-    const rh = Math.round((SH + (relY + (parent?.scrollTop ?? 0) - (parent?.getBoundingClientRect().top ?? 0) + rect.top - (parent?.getBoundingClientRect().top ?? 0)) / HPX * 2)) / 2
-    // simpler: use offsetY
     const oh = e.nativeEvent.offsetY
     const h = Math.max(SH, Math.min(EH - 0.5, Math.round((SH + oh / HPX) * 2) / 2))
     onClickEmpty(dayIdx, h)
   }
-
   return (
-    <div onClick={handleClick}
-      style={{ flex:1, position:'relative', height:TH,
-        borderRight: dayIdx < 4 ? '0.5px solid var(--border)' : 'none',
-        cursor:'crosshair',
-        backgroundImage:'repeating-linear-gradient(to bottom,transparent 0,transparent 19px,rgba(128,128,128,.08) 19px,rgba(128,128,128,.08) 20px,transparent 20px,transparent 39px,rgba(128,128,128,.2) 39px,rgba(128,128,128,.2) 40px)',
-      }}>
+    <div onClick={handleClick} style={{ flex:1, position:'relative', height:TH,
+      borderRight: dayIdx < 4 ? '0.5px solid var(--border)' : 'none', cursor:'crosshair' }}>
+      <GridLines />
       {meetings.map(m => (
         <MeetingBlock key={m.id} meeting={m} lang={lang} tl={tl}
           stLabel={stLabel} execDisplay={execDisplay} vById={vById}
@@ -465,13 +502,11 @@ function MeetingBlock({ meeting: m, lang, tl, stLabel, execDisplay, vById, onCli
   const ex  = execDisplay(m)
   const v   = m.visitor_id ? vById(m.visitor_id) : null
   const vc  = v ? vcol(v.color_idx) : null
-
   return (
     <div onClick={e => { e.stopPropagation(); onClick() }}
-      style={{ position:'absolute', left:3, right:3, top, height:hpx,
-        borderRadius:4, padding:'3px 5px', cursor:'pointer', overflow:'hidden', zIndex:2,
-        background:c.bg, borderLeft:`3px solid ${c.bd}`, color:c.tx,
-        transition:'filter .12s' }}
+      style={{ position:'absolute', left:3, right:3, top, height:hpx, zIndex:2,
+        borderRadius:4, padding:'3px 5px', cursor:'pointer', overflow:'hidden',
+        background:c.bg, borderLeft:`3px solid ${c.bd}`, color:c.tx, transition:'filter .12s' }}
       onMouseEnter={e => e.currentTarget.style.filter='brightness(.9)'}
       onMouseLeave={e => e.currentTarget.style.filter=''}>
       <div style={{ fontSize:10, fontWeight:500, lineHeight:1.3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{ttl}</div>
@@ -495,10 +530,8 @@ function DetailPanel({ meeting: m, visitors, lang, tl, stLabel, execDisplay, vBy
   const v  = m.visitor_id ? vById(m.visitor_id) : null
   const vc = v ? vcol(v.color_idx) : null
   const ttl = lang === 'en' && m.title_en ? m.title_en : m.title
-  const ex  = execDisplay(m)
   const d   = weekDates[m.day_index]
   const dateStr = d ? `${d.getMonth()+1}/${d.getDate()} ` : ''
-
   return <>
     <PanelHeader title={ttl} onClose={onClose} />
     <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
@@ -512,28 +545,23 @@ function DetailPanel({ meeting: m, visitors, lang, tl, stLabel, execDisplay, vBy
     </div>
     <FieldRow label={tl.time} value={`${dateStr}${ft(m.start_time)} – ${ft(m.end_time)}`} />
     {(m.attendees||[]).length > 0 && (
-      <div><div style={styles.label}>{tl.atts}</div>
+      <div><div style={S.label}>{tl.atts}</div>
         <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginTop:2 }}>
-          {(m.attendees||[]).map(a => <span key={a} style={styles.chip}>{a}</span>)}
+          {(m.attendees||[]).map(a => <span key={a} style={S.achip}>{a}</span>)}
         </div>
       </div>
     )}
     {m.notes && <FieldRow label={tl.notes} value={m.notes} muted />}
     {m.status === 'confirmed' && m.briefing && <>
       <hr style={{ border:'none', borderTop:'0.5px solid var(--border)', margin:'2px 0' }} />
-      <div>
-        <div style={styles.label}>📋 {tl.brf}</div>
+      <div><div style={S.label}>📋 {tl.brf}</div>
         <div style={{ background:'var(--bg-2)', border:'0.5px solid var(--border)', borderRadius:6,
           padding:9, fontSize:11, lineHeight:1.65, marginTop:4 }}>{m.briefing}</div>
       </div>
     </>}
     <div style={{ display:'flex', flexDirection:'column', gap:5, marginTop:'auto', paddingTop:4 }}>
-      <button className="btn btn-teams" onClick={() => onICS(m)} style={{ justifyContent:'center' }}>
-        📅 {tl.ics}
-      </button>
-      <button className="btn" onClick={onEdit} style={{ justifyContent:'center', fontSize:10 }}>
-        ✏️ {lang==='ja'?'編集':'Edit'}
-      </button>
+      <button className="btn btn-teams" onClick={() => onICS(m)} style={{ justifyContent:'center' }}>📅 {tl.ics}</button>
+      <button className="btn" onClick={onEdit} style={{ justifyContent:'center', fontSize:10 }}>✏️ {lang==='ja'?'編集':'Edit'}</button>
     </div>
   </>
 }
@@ -552,41 +580,32 @@ function MeetingForm({ meeting, visitors, lang, tl, initialDay, initialStart, on
     owner:        meeting?.owner || 'TY',
     visitor_id:   meeting?.visitor_id || '',
     visitor_scope: meeting?.visitor_scope || '',
-    custom_exec:  (!meeting?.visitor_id && meeting?.visitor_scope !== 'all') ? '' : '',
     attendees:    (meeting?.attendees || []).join(', '),
     notes:        meeting?.notes || '',
     briefing:     meeting?.briefing || '',
   })
-
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
-
-  function parseTime(s) { const [h,m] = s.split(':').map(Number); return h + m/60 }
+  const parseTime = s => { const [h,m] = s.split(':').map(Number); return h + m/60 }
 
   async function handleSave() {
-    const vid = form.visitor_id === 'all' || form.visitor_id === 'custom' ? null : form.visitor_id
+    const vid = (form.visitor_id === 'all' || form.visitor_id === '') ? null : form.visitor_id
     const vsc = form.visitor_id === 'all' ? 'all' : null
-    const atts = form.attendees.split(',').map(s=>s.trim()).filter(Boolean)
     await onSave({
       title: form.title || (lang==='ja'?'(無題)':'(Untitled)'),
       title_en: form.title_en,
       day_index: Number(form.day_index),
-      start_time: form.start_time,
-      end_time:   form.end_time,
-      status:     form.status,
-      owner:      form.owner,
-      visitor_id: vid || null,
-      visitor_scope: vsc,
-      attendees:  atts,
-      notes:      form.notes,
-      briefing:   form.briefing,
+      start_time: form.start_time, end_time: form.end_time,
+      status: form.status, owner: form.owner,
+      visitor_id: vid || null, visitor_scope: vsc,
+      attendees: form.attendees.split(',').map(s=>s.trim()).filter(Boolean),
+      notes: form.notes, briefing: form.briefing,
     })
   }
 
   return <>
-    <PanelHeader title={isEdit ? tl.editT : tl.addT}
-      onClose={onClose} backLabel={isEdit ? '←' : null} />
+    <PanelHeader title={isEdit ? tl.editT : tl.addT} onClose={onClose} />
     <div className="fld"><label>{tl.fttl}</label>
-      <input value={form.title} onChange={e=>set('title',e.target.value)} placeholder={lang==='ja'?'例：KHI商談':'e.g. KHI Meeting'} /></div>
+      <input value={form.title} onChange={e=>set('title',e.target.value)} /></div>
     <div className="fld"><label>{tl.fattl}</label>
       <input value={form.title_en} onChange={e=>set('title_en',e.target.value)} /></div>
     <div className="fld"><label>{tl.fday}</label>
@@ -631,11 +650,14 @@ function MeetingForm({ meeting, visitors, lang, tl, initialDay, initialStart, on
 }
 
 // ── VisitorPanel ──────────────────────────────────────────────────────────────
-function VisitorPanel({ visitors, lang, tl, meetings, onAdd, onDelete, onClose, vName }) {
+function VisitorPanel({ visitors, lang, tl, meetings, onAdd, onBulkAdd, onDelete, onClose, vName }) {
   const [selColor, setSelColor] = useState(0)
   const [nm, setNm]   = useState('')
   const [nmEn, setNmEn] = useState('')
   const [role, setRole] = useState('')
+  const [xlsPreview, setXlsPreview] = useState(null)
+  const [xlsError, setXlsError]     = useState('')
+  const fileRef = useRef()
 
   async function handleAdd() {
     if (!nm.trim() && !nmEn.trim()) return
@@ -643,11 +665,71 @@ function VisitorPanel({ visitors, lang, tl, meetings, onAdd, onDelete, onClose, 
     setNm(''); setNmEn(''); setRole('')
   }
 
+  async function handleFileChange(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    setXlsError('')
+    try {
+      const parsed = await parseVisitorExcel(file)
+      setXlsPreview(parsed)
+    } catch {
+      setXlsError(tl.xlsError)
+    }
+    e.target.value = ''
+  }
+
+  async function handleImportConfirm() {
+    if (!xlsPreview) return
+    await onBulkAdd(xlsPreview)
+    setXlsPreview(null)
+  }
+
   return <>
-    <PanelHeader title={tl.visSetup} onClose={onClose}
-      subtitle={tl.visDesc} />
+    <PanelHeader title={tl.visSetup} subtitle={tl.visDesc} onClose={onClose} />
+
+    {/* Excel import */}
+    <div style={{ background:'var(--bg-2)', border:'0.5px solid var(--border)', borderRadius:6, padding:9 }}>
+      <div style={{ fontSize:10, fontWeight:500, marginBottom:6 }}>📊 {tl.xlsImport}</div>
+      <div style={{ fontSize:9, color:'var(--text-3)', marginBottom:7 }}>{tl.xlsFormatHint}</div>
+      <div style={{ display:'flex', gap:6 }}>
+        <button className="btn" style={{ fontSize:10, flex:1 }} onClick={() => downloadVisitorTemplate(lang)}>
+          ⬇ {tl.xlsTemplate}
+        </button>
+        <button className="btn btn-p" style={{ fontSize:10, flex:1 }} onClick={() => fileRef.current?.click()}>
+          ⬆ {tl.xlsImport}
+        </button>
+      </div>
+      <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display:'none' }} onChange={handleFileChange} />
+      {xlsError && <div style={{ fontSize:10, color:'#a32d2d', marginTop:5 }}>{xlsError}</div>}
+    </div>
+
+    {/* Excel preview */}
+    {xlsPreview && (
+      <div style={{ background:'var(--bg-2)', border:'0.5px solid #639922', borderRadius:6, padding:9 }}>
+        <div style={{ fontSize:10, fontWeight:500, marginBottom:6 }}>✅ {tl.xlsPreview} ({xlsPreview.length}{lang==='ja'?'件':''})</div>
+        {xlsPreview.slice(0,5).map((v,i) => {
+          const c = vcol(v.color_idx)
+          return (
+            <div key={i} style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
+              <span className="vdot" style={{ background:c.bg, color:c.col, borderColor:c.bd }}>{v.name.charAt(0)}</span>
+              <span style={{ fontSize:11 }}>{v.name}</span>
+              <span style={{ fontSize:9, color:'var(--text-2)' }}>{v.role}</span>
+            </div>
+          )
+        })}
+        {xlsPreview.length > 5 && <div style={{ fontSize:9, color:'var(--text-3)' }}>... +{xlsPreview.length-5}</div>}
+        <div className="f2" style={{ marginTop:7 }}>
+          <button className="btn" style={{ justifyContent:'center', fontSize:10 }} onClick={() => setXlsPreview(null)}>{tl.xlsCancel}</button>
+          <button className="btn btn-p" style={{ justifyContent:'center', fontSize:10 }} onClick={handleImportConfirm}>{tl.xlsConfirm}</button>
+        </div>
+      </div>
+    )}
+
+    <hr style={{ border:'none', borderTop:'0.5px solid var(--border)', margin:'2px 0' }} />
+
+    {/* current visitors */}
     {visitors.length === 0
-      ? <div style={{ textAlign:'center', padding:'16px 0', fontSize:11, color:'var(--text-3)' }}>{tl.visNone}</div>
+      ? <div style={{ textAlign:'center', padding:'12px 0', fontSize:11, color:'var(--text-3)' }}>{tl.visNone}</div>
       : visitors.map(v => {
           const c = vcol(v.color_idx)
           const cnt = meetings.filter(m => m.visitor_id === v.id).length
@@ -664,34 +746,34 @@ function VisitorPanel({ visitors, lang, tl, meetings, onAdd, onDelete, onClose, 
           )
         })
     }
+
     <hr style={{ border:'none', borderTop:'0.5px solid var(--border)', margin:'2px 0' }} />
     <div style={{ fontSize:11, fontWeight:500, marginBottom:2 }}>{tl.visAdd}</div>
     <div className="fld"><label>{tl.visName}</label>
-      <input value={nm} onChange={e=>setNm(e.target.value)} placeholder={lang==='ja'?'例：山田太郎':'e.g. Yamada'} /></div>
+      <input value={nm} onChange={e=>setNm(e.target.value)} /></div>
     <div className="fld"><label>{tl.visNameEn}</label>
-      <input value={nmEn} onChange={e=>setNmEn(e.target.value)} placeholder="e.g. Alex Smith" /></div>
+      <input value={nmEn} onChange={e=>setNmEn(e.target.value)} /></div>
     <div className="fld"><label>{tl.visRole}</label>
-      <input value={role} onChange={e=>setRole(e.target.value)} placeholder={lang==='ja'?'例：CCO':'e.g. CCO'} /></div>
-    <div className="fld">
-      <label>{tl.visColor}</label>
+      <input value={role} onChange={e=>setRole(e.target.value)} /></div>
+    <div className="fld"><label>{tl.visColor}</label>
       <div style={{ display:'flex', gap:6, padding:'4px 0' }}>
         {VCOLS.map((c,i) => (
           <span key={i} onClick={() => setSelColor(i)}
             style={{ width:22, height:22, borderRadius:'50%', cursor:'pointer',
               background:c.bg, border:`2px solid ${c.bd}`,
               transform: selColor===i ? 'scale(1.3)' : 'scale(1)',
-              boxShadow: selColor===i ? `0 0 0 2px #fff, 0 0 0 3.5px ${c.bd}` : 'none',
-              transition:'transform .12s, box-shadow .12s' }} />
+              boxShadow: selColor===i ? `0 0 0 2px var(--bg), 0 0 0 3.5px ${c.bd}` : 'none',
+              transition:'all .12s' }} />
         ))}
       </div>
     </div>
     <button className="btn btn-p" onClick={handleAdd} style={{ width:'100%', justifyContent:'center' }}>
-      + {tl.visAddBtn ?? tl.visAdd}
+      + {tl.visAdd}
     </button>
   </>
 }
 
-// ── small shared components ───────────────────────────────────────────────────
+// ── shared components ─────────────────────────────────────────────────────────
 function PanelHeader({ title, subtitle, onClose }) {
   return (
     <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:6 }}>
@@ -703,33 +785,29 @@ function PanelHeader({ title, subtitle, onClose }) {
     </div>
   )
 }
-
 function FieldRow({ label, value, muted }) {
   return (
     <div>
-      <div style={styles.label}>{label}</div>
+      <div style={S.label}>{label}</div>
       <div style={{ fontSize:11, color: muted ? 'var(--text-2)' : 'var(--text)', lineHeight:1.5, marginTop:2 }}>{value}</div>
     </div>
   )
 }
 
-// ── inline styles ─────────────────────────────────────────────────────────────
-const styles = {
+// ── styles ────────────────────────────────────────────────────────────────────
+const S = {
   topbar: { background:'var(--bg)', borderBottom:'0.5px solid var(--border)', padding:'8px 12px',
     display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, flexShrink:0 },
-  logo: { background:'#3B1A6E', color:'#fff', fontSize:11, fontWeight:500,
-    padding:'3px 9px', borderRadius:6, letterSpacing:.3 },
-  appTitle: { fontSize:13, fontWeight:500 },
-  bar: { background:'var(--bg)', borderBottom:'0.5px solid var(--border)', padding:'5px 12px',
+  logo:   { background:'#3B1A6E', color:'#fff', fontSize:11, fontWeight:500, padding:'3px 9px', borderRadius:6 },
+  bar:    { background:'var(--bg)', borderBottom:'0.5px solid var(--border)', padding:'5px 12px',
     display:'flex', alignItems:'center', gap:7, flexWrap:'wrap', minHeight:34, flexShrink:0 },
-  barGroup: { display:'flex', alignItems:'center', gap:5 },
-  barLabel: { fontSize:11, color:'var(--text-2)', whiteSpace:'nowrap' },
-  rp: { width:268, flexShrink:0, borderLeft:'0.5px solid var(--border)',
-    background:'var(--bg)', overflowY:'auto', display:'flex', flexDirection:'column' },
-  rpi: { padding:13, display:'flex', flexDirection:'column', gap:9, minHeight:'100%' },
+  bg:     { display:'flex', alignItems:'center', gap:5 },
+  bl:     { fontSize:11, color:'var(--text-2)', whiteSpace:'nowrap' },
+  rp:     { width:268, flexShrink:0, borderLeft:'0.5px solid var(--border)', background:'var(--bg)', overflowY:'auto' },
+  rpi:    { padding:13, display:'flex', flexDirection:'column', gap:9, minHeight:'100%' },
   legend: { display:'flex', gap:10, alignItems:'center', padding:'5px 12px',
     borderTop:'0.5px solid var(--border)', background:'var(--bg)', flexWrap:'wrap', flexShrink:0 },
-  label: { fontSize:9, color:'var(--text-2)', textTransform:'uppercase', letterSpacing:.5 },
-  chip: { fontSize:9, padding:'2px 6px', borderRadius:8, background:'var(--bg-2)',
+  label:  { fontSize:9, color:'var(--text-2)', textTransform:'uppercase', letterSpacing:.5 },
+  achip:  { fontSize:9, padding:'2px 6px', borderRadius:8, background:'var(--bg-2)',
     color:'var(--text-2)', border:'0.5px solid var(--border)' },
 }
