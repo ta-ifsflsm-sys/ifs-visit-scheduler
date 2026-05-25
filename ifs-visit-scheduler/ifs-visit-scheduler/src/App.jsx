@@ -228,7 +228,8 @@ export default function App() {
   // ── filter ──
   function visibleMeetings() {
     return meetings.filter(m => {
-      const owOk  = foOw  === 'all' || m.owner === foOw
+      const owIds = m.owner_ids?.length ? m.owner_ids : (m.owner ? [m.owner] : [])
+      const owOk  = foOw === 'all' || owIds.includes(foOw)
       const stOk  = foSt  === 'all' || m.status === foSt
       const ids = m.visitor_ids?.length ? m.visitor_ids : (m.visitor_id ? [m.visitor_id] : [])
       const vidOk = foVid === 'all' || m.visitor_scope === 'all' || ids.includes(foVid)
@@ -510,7 +511,8 @@ function DayColumn({ dayIdx, meetings, oColor, lang, tl, stLabel, execDisplay, v
 // ── MeetingBlock ──────────────────────────────────────────────────────────────
 function MeetingBlock({ meeting:m, lang, tl, stLabel, execDisplay, vById, oColor, onClick }) {
   const c   = STC[m.status]
-  const ow  = oColor(m.owner)
+  const owIds2 = m.owner_ids?.length ? m.owner_ids : (m.owner ? [m.owner] : [])
+  const ow  = oColor(owIds2[0] || m.owner)
   const top = h2y(m.start_time)
   const hpx = Math.max(h2y(m.end_time)-top, 18)
   const ttl = lang==='en'&&m.title_en ? m.title_en : m.title
@@ -529,7 +531,7 @@ function MeetingBlock({ meeting:m, lang, tl, stLabel, execDisplay, vById, oColor
       {hpx>54 && (
         <div style={{display:'flex',gap:3,marginTop:2,alignItems:'center'}}>
           <span style={{fontSize:8,padding:'1px 5px',borderRadius:6,fontWeight:500,background:'rgba(0,0,0,.1)',color:c.tx}}>{stLabel(m.status)}</span>
-          <span className="dot" style={{background:ow.bg,color:ow.col,width:13,height:13,fontSize:7}}>{m.owner}</span>
+          {owIds2.slice(0,2).map(id=>{const c2=oColor(id);return <span key={id} className="dot" style={{background:c2.bg,color:c2.col,width:13,height:13,fontSize:7}}>{id}</span>})}
           {vs.slice(0,2).map(v=>{const vc=vcol(v.color_idx);return <span key={v.id} className="vdot" style={{background:vc.bg,color:vc.col,borderColor:vc.bd,width:13,height:13,fontSize:8}}>{v.name.charAt(0)}</span>})}
         </div>
       )}
@@ -550,8 +552,16 @@ function DetailPanel({ meeting:m, lang, tl, stLabel, execDisplay, vById, vName, 
     <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
       <span style={{display:'inline-flex',padding:'2px 9px',borderRadius:10,fontSize:10,fontWeight:500,
         background:c.bg,color:c.tx,border:`0.5px solid ${c.bd}`}}>{stLabel(m.status)}</span>
-      <span className="dot" style={{background:ow.bg,color:ow.col}}>{m.owner}</span>
-      <span style={{fontSize:10,color:'var(--text-2)'}}>{oName(m.owner)}</span>
+      {(() => {
+        const owIds3 = m.owner_ids?.length ? m.owner_ids : (m.owner ? [m.owner] : [])
+        return owIds3.map(id => {
+          const c3=oColor(id)
+          return <span key={id} style={{display:'inline-flex',alignItems:'center',gap:3}}>
+            <span className="dot" style={{background:c3.bg,color:c3.col}}>{id}</span>
+            <span style={{fontSize:10,color:'var(--text-2)'}}>{oName(id)}</span>
+          </span>
+        })
+      })()}
       {m.visitor_scope==='all'
         ? <span style={{fontSize:10,color:'var(--text-2)'}}>{tl.allExec}</span>
         : (() => {
@@ -603,7 +613,7 @@ function MeetingForm({ meeting, visitors, owners, lang, tl, initialDay, initialS
     start_time:    meeting?.start_time??initialStart,
     end_time:      meeting?.end_time??Math.min(EH,(meeting?.start_time??initialStart)+1),
     status:        meeting?.status||'tentative',
-    owner:         meeting?.owner||defaultOwner,
+    owner_ids:     meeting?.owner_ids?.length ? meeting.owner_ids : (meeting?.owner ? [meeting.owner] : (defaultOwner ? [defaultOwner] : [])),
     visitor_ids:   meeting?.visitor_ids?.length ? meeting.visitor_ids : (meeting?.visitor_id ? [meeting.visitor_id] : []),
     visitor_scope: meeting?.visitor_scope||'',
     attendees:     (meeting?.attendees||[]).join(', '),
@@ -617,7 +627,9 @@ function MeetingForm({ meeting, visitors, owners, lang, tl, initialDay, initialS
     await onSave({
       title:form.title||(lang==='ja'?'(無題)':'(Untitled)'), title_en:form.title_en,
       day_index:Number(form.day_index), start_time:form.start_time, end_time:form.end_time,
-      status:form.status, owner:form.owner,
+      status:form.status,
+      owner: form.owner_ids?.[0] || defaultOwner,
+      owner_ids: form.owner_ids,
       visitor_ids: form.visitor_scope==='all' ? [] : form.visitor_ids,
       visitor_scope: form.visitor_scope==='all' ? 'all' : null,
       visitor_id: null,
@@ -645,9 +657,27 @@ function MeetingForm({ meeting, visitors, owners, lang, tl, initialDay, initialS
         <option value="travel">{tl.trvl}</option>
       </select></div>
     <div className="fld"><label>{tl.fow}</label>
-      <select value={form.owner} onChange={e=>set('owner',e.target.value)}>
-        {owners.map(o=><option key={o.id} value={o.id}>{o.id} – {lang==='en'?(o.name_en||o.name):o.name}</option>)}
-      </select></div>
+      <div style={{border:'0.5px solid var(--border-2)',borderRadius:6,maxHeight:130,overflowY:'auto'}}>
+        {owners.map(o=>{
+          const checked=(form.owner_ids||[]).includes(o.id)
+          const c=vcol(o.color_idx)
+          return (
+            <label key={o.id} style={{display:'grid',gridTemplateColumns:'16px 18px 1fr',
+              alignItems:'center',gap:6,padding:'4px 8px',cursor:'pointer',fontSize:11,
+              background:checked?c.bg:'transparent'}}>
+              <input type="checkbox" style={{width:14,height:14}}
+                checked={checked}
+                onChange={()=>{
+                  const ids=form.owner_ids||[]
+                  setForm(f=>({...f,owner_ids:checked?ids.filter(x=>x!==o.id):[...ids,o.id]}))
+                }} />
+              <span className="dot" style={{background:c.bg,color:c.col,width:18,height:18,fontSize:9,flexShrink:0}}>{o.id}</span>
+              <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',
+                color:checked?c.col:'inherit'}}>{lang==='en'?(o.name_en||o.name):o.name}</span>
+            </label>
+          )
+        })}
+      </div></div>
     <div className="fld"><label>{tl.fexec}</label>
       <div style={{border:'0.5px solid var(--border-2)',borderRadius:6,maxHeight:170,overflowY:'auto'}}>
         <label style={{display:'grid',gridTemplateColumns:'16px 1fr',alignItems:'center',gap:8,
